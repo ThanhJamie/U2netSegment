@@ -30,8 +30,8 @@ from data.custom_dataset_data_loader import CustomDatasetDataLoader, sample_data
 from options.base_options import parser
 from utils.tensorboard_utils import board_add_images
 from utils.saving_utils import save_checkpoints
-from utils.saving_utils import load_checkpoint, load_checkpoint_mgpu
-from utils.distributed import get_world_size, set_seed, synchronize, cleanup
+from utils.saving_utils import load_checkpoint 
+from utils.distributed import set_seed, synchronize, cleanup
 
 from networks import U2NET
 
@@ -85,9 +85,10 @@ def training_loop(opt):
             print("Going super fast with DistributedDataParallel")
 
     # initialize optimizer
-    optimizer = optim.Adam(
-        u_net.parameters(), lr=0.001, betas=(0.9, 0.999), eps=1e-08, weight_decay=0
-    )
+    if u_net is not None:
+        optimizer = optim.Adam(
+            u_net.parameters(), lr=0.001, betas=(0.9, 0.999), eps=1e-08, weight_decay=0
+        )
 
     custom_dataloader = CustomDatasetDataLoader()
     custom_dataloader.initialize(opt)
@@ -115,28 +116,27 @@ def training_loop(opt):
         image = Variable(image.to(device))
         label = label.type(torch.long)
         label = Variable(label.to(device))
-        # if u_net is not None:
-        #     d0, d1, d2, d3, d4, d5, d6 = u_net(image)
-        # else:
-        #     d0, d1, d2, d3, d4, d5, d6 = u_net(image)
-        # # global d0, d1, d2, d3, d4, d5, d6 
-        # # d0, d1, d2, d3, d4, d5, d6 = u_net(image)
-        # # d0, d1, d2, d3, d4, d5, d6 = d0, d1, d2, d3, d4, d5, d6
-        # loss0 = loss_CE(d0, label)
-        # loss1 = loss_CE(d1, label)
-        # loss2 = loss_CE(d2, label)
-        # loss3 = loss_CE(d3, label)
-        # loss4 = loss_CE(d4, label)
-        # loss5 = loss_CE(d5, label)
-        # loss6 = loss_CE(d6, label)
-        # del d1, d2, d3, d4, d5, d6
+        if u_net is not None: # Thanh them vao
+            d0, d1, d2, d3, d4, d5, d6 = u_net(image)
+        # global d0, d1, d2, d3, d4, d5, d6
+        # d0, d1, d2, d3, d4, d5, d6 = u_net(image)
+        # d0, d1, d2, d3, d4, d5, d6 = d0, d1, d2, d3, d4, d5, d6
+        loss0 = loss_CE(d0, label)
+        loss1 = loss_CE(d1, label)
+        loss2 = loss_CE(d2, label)
+        loss3 = loss_CE(d3, label)
+        loss4 = loss_CE(d4, label)
+        loss5 = loss_CE(d5, label)
+        loss6 = loss_CE(d6, label)
+        del d1, d2, d3, d4, d5, d6
+        # print(d0) #Thanh them vao
 
-        # total_loss = loss0 * 1.5 + loss1 + loss2 + loss3 + loss4 + loss5 + loss6
+        total_loss = loss0 * 1.5 + loss1 + loss2 + loss3 + loss4 + loss5 + loss6
         if u_net is not None:
             for param in u_net.parameters():
                 param.grad = None
 
-        # total_loss.backward()
+        total_loss.backward()
         if opt.clip_grad != 0 and u_net is not None:
             nn.utils.clip_grad_norm_(u_net.parameters(), opt.clip_grad)
         optimizer.step()
@@ -146,7 +146,7 @@ def training_loop(opt):
             if itr % opt.print_freq == 0:
                 pprint.pprint(
                     "[step-{:08d}] [time-{:.3f}] [total_loss-{:.6f}]  [loss0-{:.6f}]".format(
-                        itr, time.time() #- start_time, total_loss, loss0
+                        itr, time.time() - start_time, total_loss, loss0
                     )
                 )
 
@@ -156,8 +156,8 @@ def training_loop(opt):
                 visuals = [[image, torch.unsqueeze(label, dim=1) * 85, d0 * 85]]
                 board_add_images(writer, "grid", visuals, itr)
 
-            # writer.add_scalar("total_loss", total_loss, itr)
-            # writer.add_scalar("loss0", loss0, itr)
+            writer.add_scalar("total_loss", total_loss, itr)
+            writer.add_scalar("loss0", loss0, itr)
 
             if itr % opt.save_freq == 0 and u_net is not None:
                 save_checkpoints(opt, itr, u_net)
